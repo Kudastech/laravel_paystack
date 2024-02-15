@@ -13,32 +13,55 @@ class PaymentController extends Controller
 
 
     public function make_payment()
-    {
-        // Step 1: Prepare form data for payment initiation
-        $formData = [
-            'email' => request('email'),
-            'amount' => request('amount') * 100,
-            'callback_url' => route('pay.callback')
-        ];
+   {
+    $validator = Validator::make($request->all(), [
+        'name' => 'required|string',
+        'email' => 'required|email',
+        'amount' => 'required|numeric',
+        'payment_for' => 'required|string',
+    ]);
 
-        // Step 2: Initiate payment by sending a request to Paystack API
-        $pay = json_decode($this->initiate_payment($formData));
+    if ($validator->fails()) {
+        return back()->withErrors($validator)->withInput();
+    }
 
-        // Step 3: Check the result of the payment initiation
-        if ($pay) {
-            // Step 4: If the payment initiation is successful
-            if ($pay->status) {
-                // Redirect the user to the Paystack authorization URL
+    $formData = [
+        'name' => $request->input('name'),
+        'email' => $request->input('email'),
+        'amount' => $request->input('amount') * 100,
+        'payment_for' => $request->input('payment_for'),
+        'callback_url' => route('pay.callback')
+    ];
+
+    $pay = json_decode($this->initiate_payment($formData));
+
+    if ($pay) {
+        // if ($pay->status) {
+            if ($pay && $pay->status) {
+            // Do not store in the database until payment is successful
+            // Add a check for successful payment
+            if ($this->isPaymentSuccessful($pay->data->reference)) {
+                // Store payment information in the database
+                Payment::create([
+                    'name' => $formData['name'],
+                    'email' => $formData['email'],
+                    'amount' => $formData['amount'],
+                    'payment_for' => $formData['payment_for'],
+                    'authorization_url' => $pay->data->authorization_url,
+                    'reference' => $pay->data->reference,
+                ]);
+
                 return redirect($pay->data->authorization_url);
             } else {
-                // Step 5: If there is an error in payment initiation, redirect back with an error message
-                return back()->withError($pay->message);
+                return back()->withError("Payment was not successful");
             }
         } else {
-            // Step 6: If something goes wrong in the process, redirect back with a generic error message
-            return back()->withError("Something went wrong");
+            return back()->withError($pay->message);
         }
+    } else {
+        return back()->withError("Something went wrong");
     }
+}
 
 
     public function payment_callback()
